@@ -610,6 +610,17 @@ func (s *Store) GetRecentActivity(ctx context.Context, productID string, limit i
 		ColumnExpr("id, entity, entity_id, action, actor_type, created_at").
 		OrderExpr("created_at DESC").
 		Limit(limit)
+	if productID != "" {
+		q = q.Where(`(
+            (entity = 'product' AND entity_id = ?)
+         OR entity_id IN (SELECT id FROM licenses  WHERE product_id = ?)
+         OR entity_id IN (SELECT id FROM plans     WHERE product_id = ?)
+         OR entity_id IN (SELECT id FROM addons    WHERE product_id = ?)
+         OR entity_id IN (SELECT id FROM webhooks  WHERE product_id = ?)
+         OR entity_id IN (SELECT id FROM releases  WHERE product_id = ?)
+         OR entity_id IN (SELECT id FROM api_keys  WHERE product_id = ?)
+        )`, productID, productID, productID, productID, productID, productID, productID)
+	}
 	err := q.Scan(ctx, &out)
 	return out, err
 }
