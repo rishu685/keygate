@@ -521,8 +521,14 @@ func (s *Store) GetGrowthMetrics(ctx context.Context, productID string) (*Growth
 	}
 
 	ttq := s.DB.NewSelect().TableExpr("licenses AS l").
-		Join("JOIN plans AS p ON p.id = l.plan_id").
-		Where("p.license_type = 'trial'")
+		Where(`(
+			l.plan_id IN (SELECT id FROM plans WHERE license_type = 'trial')
+			OR l.id IN (
+				SELECT u.license_id FROM license_upgrades u
+				JOIN plans fp ON fp.id = u.from_plan_id
+				WHERE fp.license_type = 'trial' AND u.state = 'applied'
+			)
+		)`)
 	if productID != "" {
 		ttq = ttq.Where("l.product_id = ?", productID)
 	}
@@ -533,9 +539,14 @@ func (s *Store) GetGrowthMetrics(ctx context.Context, productID string) (*Growth
 	gm.TotalTrials = totalTrials
 
 	ctq := s.DB.NewSelect().TableExpr("licenses AS l").
-		Join("JOIN plans AS p ON p.id = l.plan_id").
-		Where("p.license_type = 'trial'").
-		Where("l.status = 'active'")
+		Where(`l.status = 'active' AND (
+			l.plan_id IN (SELECT id FROM plans WHERE license_type = 'trial')
+			OR l.id IN (
+				SELECT u.license_id FROM license_upgrades u
+				JOIN plans fp ON fp.id = u.from_plan_id
+				WHERE fp.license_type = 'trial' AND u.state = 'applied'
+			)
+		)`)
 	if productID != "" {
 		ctq = ctq.Where("l.product_id = ?", productID)
 	}
