@@ -2467,6 +2467,7 @@ func (h *AdminHandler) CreateLicense(c *gin.Context) {
 		// plan decides: trial plans get now+trial_days, everything else
 		// is perpetual. When set it wins over the trial default.
 		ValidUntil string `json:"valid_until"`
+		Quantity   *int   `json:"quantity"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "product_id, plan_id, and email are required")
@@ -2531,6 +2532,24 @@ func (h *AdminHandler) CreateLicense(c *gin.Context) {
 	if plan.LicenseType == "trial" {
 		status = model.StatusTrialing
 	}
+	quantity := 1
+	if plan.PerSeat {
+		if req.Quantity != nil {
+			if *req.Quantity < plan.MinQuantity || *req.Quantity > plan.MaxQuantity {
+				response.Conflict(c, "QUANTITY_OUT_OF_RANGE",
+					fmt.Sprintf("this license's plan sells %d to %d seats", plan.MinQuantity, plan.MaxQuantity),
+					gin.H{"min": plan.MinQuantity, "max": plan.MaxQuantity})
+				return
+			}
+			quantity = *req.Quantity
+		} else {
+			quantity = max(1, plan.MinQuantity)
+		}
+	} else if req.Quantity != nil && *req.Quantity > 1 {
+		response.Conflict(c, "NOT_PER_SEAT", "this license's plan is not sold per seat", nil)
+		return
+	}
+
 	key, err := h.Store.NewLicenseKey(c, req.ProductID)
 	if err != nil {
 		response.Internal(c, err)
@@ -2546,6 +2565,7 @@ func (h *AdminHandler) CreateLicense(c *gin.Context) {
 		Notes:               req.Notes,
 		ExternalCustomerID:  req.ExternalCustomerID,
 		ExternalWorkspaceID: req.ExternalWorkspaceID,
+		Quantity:            quantity,
 	}
 
 	// Set valid_until: an explicit request value wins, otherwise trial
@@ -2600,16 +2620,20 @@ func (h *AdminHandler) CreateLicense(c *gin.Context) {
 		return
 	}
 
+	changes := map[string]any{"email": req.Email, "plan_id": req.PlanID}
+	webhookPayload := map[string]any{"license_id": l.ID, "email": req.Email, "plan_id": req.PlanID}
+	if quantity > 1 {
+		changes["quantity"] = quantity
+		webhookPayload["quantity"] = quantity
+	}
 	h.Store.Audit(c, &model.AuditLog{
 		Entity: "license", EntityID: l.ID, Action: "created",
 		ActorType: "admin", ActorID: adminID(c),
-		Changes: map[string]any{"email": req.Email, "plan_id": req.PlanID},
+		Changes: changes,
 	})
 
 	if h.Webhook != nil {
-		h.Webhook.Dispatch(c, l.ProductID, "license.created", map[string]any{
-			"license_id": l.ID, "email": req.Email, "plan_id": req.PlanID,
-		})
+		h.Webhook.Dispatch(c, l.ProductID, "license.created", webhookPayload)
 	}
 
 	// Email the customer their new license key. Best-effort: SMTP failure

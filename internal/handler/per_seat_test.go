@@ -192,3 +192,59 @@ func TestSetLicenseQuantity(t *testing.T) {
 		t.Fatalf("set on a plan not sold per seat = %d %v, want 409 NOT_PER_SEAT", code, out)
 	}
 }
+
+func TestCreateLicenseQuantity(t *testing.T) {
+	f := newAPIFixture(t)
+	h := &AdminHandler{Store: f.s}
+	prod := &model.Product{Name: "QProd", Slug: "qprod-" + f.suffix, Type: "hybrid"}
+	if err := f.s.CreateProduct(f.ctx, prod); err != nil {
+		t.Fatal(err)
+	}
+	teamPlan := &model.Plan{ProductID: prod.ID, Name: "TeamPlan", Slug: "q-team-plan-" + f.suffix, LicenseType: "subscription",
+		LicenseModel: "standard", MaxActivations: 2, MaxSeats: 1, PerSeat: true, MinQuantity: 5, MaxQuantity: 50, Active: true}
+	if err := f.s.CreatePlan(f.ctx, teamPlan); err != nil {
+		t.Fatal(err)
+	}
+	stdPlan := &model.Plan{ProductID: prod.ID, Name: "StdPlan", Slug: "q-std-plan-" + f.suffix, LicenseType: "subscription",
+		LicenseModel: "standard", MaxActivations: 2, MaxSeats: 1, PerSeat: false, Active: true}
+	if err := f.s.CreatePlan(f.ctx, stdPlan); err != nil {
+		t.Fatal(err)
+	}
+
+	create := func(planID, email string, extra string) (int, map[string]any) {
+		body := fmt.Sprintf(`{"product_id":%q,"plan_id":%q,"email":%q%s}`, prod.ID, planID, email, extra)
+		return f.call(h.CreateLicense, http.MethodPost, "/admin/licenses", body, nil)
+	}
+
+	// 1. Explicit quantity within bounds
+	code, out := create(teamPlan.ID, "user1@example.com", `,"quantity":10`)
+	d, _ := out["data"].(map[string]any)
+	if code != http.StatusCreated || d["quantity"] != float64(10) {
+		t.Fatalf("create per seat with quantity 10 = %d %v, want 201 with quantity 10", code, out)
+	}
+
+	// 2. Quantity omitted defaults to plan.MinQuantity (5)
+	code, out = create(teamPlan.ID, "user2@example.com", "")
+	d, _ = out["data"].(map[string]any)
+	if code != http.StatusCreated || d["quantity"] != float64(5) {
+		t.Fatalf("create per seat without quantity = %d %v, want 201 with quantity 5 (min_quantity)", code, out)
+	}
+
+	// 3. Below min_quantity
+	code, out = create(teamPlan.ID, "user3@example.com", `,"quantity":3`)
+	if code != http.StatusConflict || errCode(out) != "QUANTITY_OUT_OF_RANGE" {
+		t.Fatalf("create with quantity 3 on min 5 = %d %v, want 409 QUANTITY_OUT_OF_RANGE", code, out)
+	}
+
+	// 4. Above max_quantity
+	code, out = create(teamPlan.ID, "user4@example.com", `,"quantity":60`)
+	if code != http.StatusConflict || errCode(out) != "QUANTITY_OUT_OF_RANGE" {
+		t.Fatalf("create with quantity 60 on max 50 = %d %v, want 409 QUANTITY_OUT_OF_RANGE", code, out)
+	}
+
+	// 5. Quantity > 1 on non-per-seat plan
+	code, out = create(stdPlan.ID, "user5@example.com", `,"quantity":5`)
+	if code != http.StatusConflict || errCode(out) != "NOT_PER_SEAT" {
+		t.Fatalf("create on non-per-seat plan with quantity 5 = %d %v, want 409 NOT_PER_SEAT", code, out)
+	}
+}
