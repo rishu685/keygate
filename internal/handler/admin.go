@@ -2473,6 +2473,10 @@ func (h *AdminHandler) CreateLicense(c *gin.Context) {
 		response.BadRequest(c, "product_id, plan_id, and email are required")
 		return
 	}
+	if req.Quantity != nil && (*req.Quantity < 1 || *req.Quantity > model.MaxPlanQuantity) {
+		response.BadRequest(c, fmt.Sprintf("quantity must be between 1 and %d", model.MaxPlanQuantity))
+		return
+	}
 	// API-key scoping first: a key bound to product A can't mint a
 	// license for product B even if it carries licenses:write, and
 	// must not learn from the lookups below whether B's plans exist.
@@ -2621,10 +2625,8 @@ func (h *AdminHandler) CreateLicense(c *gin.Context) {
 	}
 
 	changes := map[string]any{"email": req.Email, "plan_id": req.PlanID}
-	webhookPayload := map[string]any{"license_id": l.ID, "email": req.Email, "plan_id": req.PlanID}
 	if quantity > 1 {
 		changes["quantity"] = quantity
-		webhookPayload["quantity"] = quantity
 	}
 	h.Store.Audit(c, &model.AuditLog{
 		Entity: "license", EntityID: l.ID, Action: "created",
@@ -2633,7 +2635,9 @@ func (h *AdminHandler) CreateLicense(c *gin.Context) {
 	})
 
 	if h.Webhook != nil {
-		h.Webhook.Dispatch(c, l.ProductID, "license.created", webhookPayload)
+		h.Webhook.Dispatch(c, l.ProductID, "license.created", map[string]any{
+			"license_id": l.ID, "email": req.Email, "plan_id": req.PlanID,
+		})
 	}
 
 	// Email the customer their new license key. Best-effort: SMTP failure

@@ -242,6 +242,24 @@ func TestCreateLicenseQuantity(t *testing.T) {
 		t.Fatalf("create with quantity 60 on max 50 = %d %v, want 409 QUANTITY_OUT_OF_RANGE", code, out)
 	}
 
+	// The plan's bounds themselves, and 1 on a plan not sold per seat.
+	for _, c := range []struct {
+		plan *model.Plan
+		q    int
+	}{{teamPlan, 5}, {teamPlan, 50}, {stdPlan, 1}} {
+		code, out := create(c.plan.ID, fmt.Sprintf("edge-%s-%d@example.com", c.plan.Slug, c.q), fmt.Sprintf(`,"quantity":%d`, c.q))
+		if d, _ := out["data"].(map[string]any); code != http.StatusCreated || d["quantity"] != float64(c.q) {
+			t.Fatalf("create on %s with quantity %d = %d %v, want 201", c.plan.Name, c.q, code, out)
+		}
+	}
+
+	// Out of what any plan sells, whatever the plan: 400, as for a change.
+	for _, q := range []string{"0", "-2", "10001"} {
+		if code, out := create(stdPlan.ID, "bad-"+q+"@example.com", `,"quantity":`+q); code != http.StatusBadRequest {
+			t.Fatalf("create with quantity %s = %d %v, want 400", q, code, out)
+		}
+	}
+
 	// 5. Quantity > 1 on non-per-seat plan
 	code, out = create(stdPlan.ID, "user5@example.com", `,"quantity":5`)
 	if code != http.StatusConflict || errCode(out) != "NOT_PER_SEAT" {

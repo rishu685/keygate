@@ -3208,6 +3208,14 @@ paths:
                   type: string
                   format: date-time
                   description: RFC 3339, in the future. Overrides the plan's default.
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+                  description: |
+                    Seats, on a plan sold per seat: between the plan's
+                    `min_quantity` and `max_quantity`, its `min_quantity` when
+                    left out. A plan not sold per seat takes only 1.
             example:
               product_id: 6f1c2e8a-1b2c-4d5e-8f90-1a2b3c4d5e6f
               plan_id: 0a9b8c7d-6e5f-4a3b-2c1d-0e9f8a7b6c5d
@@ -3232,7 +3240,7 @@ paths:
           description: |
             - `BAD_REQUEST`: missing fields, invalid email, an external id
               over 256 characters, `valid_until` not RFC 3339 or not in
-              the future
+              the future, `quantity` below 1 or above 10000
             - `PLAN_PRODUCT_MISMATCH`: the plan belongs to another product
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "401":
@@ -3248,6 +3256,9 @@ paths:
               `FEED_CACHE_DRAINING` (`details.retry_after_seconds`): the
               plan sells an update period that cannot be issued now
             - `PLAN_CHANGED`: the plan's license type changed meanwhile; retry
+            - `QUANTITY_OUT_OF_RANGE` (`details.min`, `details.max`): the
+              plan sells another number of seats
+            - `NOT_PER_SEAT`: `quantity` above 1 on a plan not sold per seat
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "429":
           $ref: "#/components/responses/RateLimited"
