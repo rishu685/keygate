@@ -1302,7 +1302,7 @@ func main() {
 	logger.Info("server exited gracefully")
 }
 
-var htmlTagPattern = regexp.MustCompile(`(?i)<[/!]?[a-z][^>]*>|<!--[\s\S]*?-->`)
+var htmlTagPattern = regexp.MustCompile(`(?i)<[/!]?[a-z][^<>]*>|<!--[\s\S]*?-->`)
 
 // stripHTMLTags removes all HTML tags from a string to prevent XSS.
 func stripHTMLTags(s string) string {
