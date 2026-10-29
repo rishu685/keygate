@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -1301,24 +1302,14 @@ func main() {
 	logger.Info("server exited gracefully")
 }
 
+var htmlTagPattern = regexp.MustCompile(`(?i)<[/!]?[a-z][^>]*>|<!--[\s\S]*?-->`)
+
 // stripHTMLTags removes all HTML tags from a string to prevent XSS.
 func stripHTMLTags(s string) string {
-	var result strings.Builder
-	inTag := false
-	for _, r := range s {
-		if r == '<' {
-			inTag = true
-			continue
-		}
-		if r == '>' {
-			inTag = false
-			continue
-		}
-		if !inTag {
-			result.WriteRune(r)
-		}
+	for htmlTagPattern.MatchString(s) {
+		s = htmlTagPattern.ReplaceAllString(s, "")
 	}
-	return result.String()
+	return s
 }
 
 // frontendAssetExts are the extensions a browser asks for as files,
