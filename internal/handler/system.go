@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/mod/semver"
+
 	"github.com/tabloy/keygate/internal/branding"
 	"github.com/tabloy/keygate/internal/store"
 	"github.com/tabloy/keygate/internal/version"
@@ -161,29 +163,59 @@ func (h *SystemHandler) fetchLatestRelease() *updateInfo {
 	return info
 }
 
+// normalizeSemver pads partial versions (e.g. "1" -> "v1.0.0", "1.1" -> "v1.1.0")
+// and ensures a "v" prefix so that golang.org/x/mod/semver can parse it per SemVer 2.0.
+func normalizeSemver(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	if !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
+	base, suffix, hasSuffix := strings.Cut(v, "-")
+	if !hasSuffix {
+		base, suffix, hasSuffix = strings.Cut(v, "+")
+		if hasSuffix {
+			suffix = "+" + suffix
+		}
+	} else {
+		suffix = "-" + suffix
+	}
+	dots := strings.Count(base, ".")
+	if dots == 0 {
+		base += ".0.0"
+	} else if dots == 1 {
+		base += ".0"
+	}
+	return base + suffix
+}
+
 // semverNewer returns true if latest > current using semantic versioning.
 func semverNewer(latest, current string) bool {
 	if latest == "" || current == "" || current == "dev" {
 		return false
 	}
-	lp := parseSemver(latest)
-	cp := parseSemver(current)
-	if lp[0] != cp[0] {
-		return lp[0] > cp[0]
+	vl := normalizeSemver(latest)
+	vc := normalizeSemver(current)
+	if !semver.IsValid(vl) || !semver.IsValid(vc) {
+		return false
 	}
-	if lp[1] != cp[1] {
-		return lp[1] > cp[1]
-	}
-	return lp[2] > cp[2]
+	return semver.Compare(vl, vc) > 0
 }
 
 func parseSemver(v string) [3]int {
-	parts := strings.SplitN(v, ".", 3)
+	v = normalizeSemver(v)
+	if !semver.IsValid(v) {
+		return [3]int{}
+	}
+	v = strings.TrimPrefix(v, "v")
+	v, _, _ = strings.Cut(v, "-")
+	v, _, _ = strings.Cut(v, "+")
+	parts := strings.Split(v, ".")
 	var result [3]int
 	for i := 0; i < 3 && i < len(parts); i++ {
-		// Strip pre-release suffix (e.g. "1-beta" → "1")
-		num, _, _ := strings.Cut(parts[i], "-")
-		result[i], _ = strconv.Atoi(num)
+		result[i], _ = strconv.Atoi(parts[i])
 	}
 	return result
 }
