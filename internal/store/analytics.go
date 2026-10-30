@@ -639,7 +639,7 @@ func (s *Store) GetTopUsers(ctx context.Context, productID string, limit int) ([
 	q := s.DB.NewSelect().
 		TableExpr("licenses AS l").
 		ColumnExpr("min(l.email) AS email").
-		ColumnExpr("COALESCE(l.user_id, '') AS user_id").
+		ColumnExpr("COALESCE(max(l.user_id), '') AS user_id").
 		ColumnExpr("COUNT(DISTINCT l.id)::int AS license_count").
 		ColumnExpr("COUNT(DISTINCT l.id) FILTER (WHERE l.status = 'active')::int AS active_count").
 		ColumnExpr("COALESCE(SUM(uc.total_usage), 0) AS total_usage").
@@ -650,8 +650,8 @@ func (s *Store) GetTopUsers(ctx context.Context, productID string, limit int) ([
 		Join("LEFT JOIN (SELECT license_id, SUM(quantity) AS total_usage FROM usage_events GROUP BY license_id) uc ON uc.license_id = l.id").
 		Join("LEFT JOIN (SELECT license_id, COUNT(*) AS activations FROM activations GROUP BY license_id) ac ON ac.license_id = l.id").
 		// Exclude admin users from customer rankings
-		Where("lower(l.email) NOT IN (SELECT email FROM users WHERE role IN ('owner', 'admin'))").
-		GroupExpr("lower(l.email), l.user_id").
+		Where("lower(l.email) NOT IN (SELECT lower(email) FROM users WHERE email IS NOT NULL AND role IN ('owner', 'admin'))").
+		GroupExpr("lower(l.email)").
 		OrderExpr("license_count DESC, total_usage DESC").
 		Limit(limit)
 	if productID != "" {
