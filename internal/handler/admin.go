@@ -5146,6 +5146,7 @@ func (h *AdminHandler) ExportLicenses(c *gin.Context) {
 			// export exists to migrate off Keygate, so an entitlement
 			// the license actually has must travel with it.
 			UpdatesUntil string `json:"updates_until"`
+			Quantity     int    `json:"quantity"`
 			CreatedAt    string `json:"created_at"`
 		}
 
@@ -5177,6 +5178,7 @@ func (h *AdminHandler) ExportLicenses(c *gin.Context) {
 				ValidFrom:    l.ValidFrom.Format(time.RFC3339),
 				ValidUntil:   validUntil,
 				UpdatesUntil: updatesUntil,
+				Quantity:     max(1, l.Quantity),
 				CreatedAt:    l.CreatedAt.Format(time.RFC3339),
 			})
 		}
@@ -5197,7 +5199,7 @@ func (h *AdminHandler) ExportLicenses(c *gin.Context) {
 	w := csv.NewWriter(c.Writer)
 	defer w.Flush()
 
-	_ = w.Write([]string{"id", "email", "product", "plan", "status", "license_key", "valid_from", "valid_until", "updates_until", "created_at"})
+	_ = w.Write([]string{"id", "email", "product", "plan", "status", "license_key", "valid_from", "valid_until", "updates_until", "quantity", "created_at"})
 
 	for _, l := range licenses {
 		productName := ""
@@ -5226,6 +5228,7 @@ func (h *AdminHandler) ExportLicenses(c *gin.Context) {
 			l.ValidFrom.Format(time.RFC3339),
 			validUntil,
 			updatesUntil,
+			strconv.Itoa(max(1, l.Quantity)),
 			l.CreatedAt.Format(time.RFC3339),
 		}))
 	}

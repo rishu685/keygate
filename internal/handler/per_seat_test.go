@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -264,5 +268,83 @@ func TestCreateLicenseQuantity(t *testing.T) {
 	code, out = create(stdPlan.ID, "user5@example.com", `,"quantity":5`)
 	if code != http.StatusConflict || errCode(out) != "NOT_PER_SEAT" {
 		t.Fatalf("create on non-per-seat plan with quantity 5 = %d %v, want 409 NOT_PER_SEAT", code, out)
+	}
+}
+
+// ExportLicenses includes seat quantity in both CSV and JSON formats.
+func TestExportLicensesQuantity(t *testing.T) {
+	f := newAPIFixture(t)
+	h := &AdminHandler{Store: f.s}
+
+	prod := &model.Product{Name: "ExportProd", Slug: "exprod-" + f.suffix, Type: "hybrid"}
+	if err := f.s.CreateProduct(f.ctx, prod); err != nil {
+		t.Fatal(err)
+	}
+	plan := &model.Plan{ProductID: prod.ID, Name: "Team", Slug: "explan-" + f.suffix, LicenseType: "subscription",
+		LicenseModel: "standard", MaxActivations: 2, MaxSeats: 1, PerSeat: true, MinQuantity: 1, MaxQuantity: 50, Active: true}
+	if err := f.s.CreatePlan(f.ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+
+	lic := &model.License{
+		ProductID:  prod.ID,
+		PlanID:     plan.ID,
+		Email:      "seats-buyer-" + f.suffix + "@example.com",
+		LicenseKey: "KEY-EXP-" + f.suffix,
+		Status:     model.StatusActive,
+		Quantity:   7,
+	}
+	if err := f.s.CreateLicense(f.ctx, lic); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. JSON export carries quantity
+	wJSON := httptest.NewRecorder()
+	cJSON, _ := gin.CreateTestContext(wJSON)
+	cJSON.Request = httptest.NewRequest(http.MethodGet, "/admin/licenses/export?format=json&product_id="+prod.ID, nil)
+	h.ExportLicenses(cJSON)
+	if wJSON.Code != http.StatusOK {
+		t.Fatalf("export json = %d: %s", wJSON.Code, wJSON.Body.String())
+	}
+	var jsonRows []map[string]any
+	if err := json.Unmarshal(wJSON.Body.Bytes(), &jsonRows); err != nil {
+		t.Fatalf("unmarshal export json: %v", err)
+	}
+	if len(jsonRows) != 1 {
+		t.Fatalf("expected 1 row in export json, got %d", len(jsonRows))
+	}
+	if q, ok := jsonRows[0]["quantity"].(float64); !ok || int(q) != 7 {
+		t.Errorf("export json quantity = %v, want 7", jsonRows[0]["quantity"])
+	}
+
+	// 2. CSV export carries quantity column and value
+	wCSV := httptest.NewRecorder()
+	cCSV, _ := gin.CreateTestContext(wCSV)
+	cCSV.Request = httptest.NewRequest(http.MethodGet, "/admin/licenses/export?format=csv&product_id="+prod.ID, nil)
+	h.ExportLicenses(cCSV)
+	if wCSV.Code != http.StatusOK {
+		t.Fatalf("export csv = %d: %s", wCSV.Code, wCSV.Body.String())
+	}
+	reader := csv.NewReader(strings.NewReader(wCSV.Body.String()))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("read export csv: %v", err)
+	}
+	if len(records) < 2 {
+		t.Fatalf("expected header and 1 data row in export csv, got %d records", len(records))
+	}
+	header := records[0]
+	qColIdx := -1
+	for idx, col := range header {
+		if col == "quantity" {
+			qColIdx = idx
+			break
+		}
+	}
+	if qColIdx == -1 {
+		t.Fatalf("header missing quantity column: %v", header)
+	}
+	if records[1][qColIdx] != "7" {
+		t.Errorf("export csv quantity value = %q, want %q", records[1][qColIdx], "7")
 	}
 }
