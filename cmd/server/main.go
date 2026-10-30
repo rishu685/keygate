@@ -990,11 +990,8 @@ func main() {
 				return
 			}
 
-			// Sanitize: trim whitespace, strip HTML tags, limit length
-			name := strings.TrimSpace(req.Name)
-			// Strip HTML tags to prevent XSS
-			name = stripHTMLTags(name)
-			if utf8.RuneCountInString(name) > 100 {
+			name, ok := profileName(req.Name)
+			if !ok {
 				response.BadRequest(c, "name too long (max 100 characters)")
 				return
 			}
@@ -1304,7 +1301,23 @@ func main() {
 
 var htmlTagPattern = regexp.MustCompile(`(?i)<[/!]?[a-z][^<>]*>|<!--[\s\S]*?-->`)
 
-// stripHTMLTags removes all HTML tags from a string to prevent XSS.
+// profileName is the name a profile update stores: trimmed, at most 100
+// characters, with HTML tags stripped. ok is false when it is longer.
+//
+// The length is checked before the tags are stripped. Stripping takes a
+// pass per level of nested tags, so on an unbounded input its time grows
+// with the square of the length: a 60 KB name of nested tags took 30 s.
+func profileName(raw string) (name string, ok bool) {
+	name = strings.TrimSpace(raw)
+	if utf8.RuneCountInString(name) > 100 {
+		return "", false
+	}
+	return stripHTMLTags(name), true
+}
+
+// stripHTMLTags removes all HTML tags from a string to prevent XSS. It
+// takes a pass per level of nested tags; callers bound its input (see
+// profileName).
 func stripHTMLTags(s string) string {
 	for htmlTagPattern.MatchString(s) {
 		s = htmlTagPattern.ReplaceAllString(s, "")
