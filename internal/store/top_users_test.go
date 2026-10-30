@@ -116,6 +116,12 @@ func TestTopUsersAggregatesCustomerAcrossUserIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// User account created in portal.
+	user := &model.User{ID: userID, Email: custEmail}
+	if err := s.UpsertUser(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+
 	// License 2: issued after portal sign-in, user_id attached.
 	l2 := &model.License{ProductID: prod.ID, PlanID: plan.ID, Email: custEmail, UserID: userID,
 		LicenseKey: "KG-CONS-" + suffix + "-2", Status: model.StatusActive}
