@@ -82,10 +82,12 @@ func (s *UsageService) RecordUsage(ctx context.Context, in RecordUsageInput) (*R
 
 	if !accepted {
 		currentUsed := updated.Used
-		if err := s.webhook.DispatchWithLog(ctx, lic.ProductID, model.EventQuotaExceeded, map[string]any{
-			"license_id": lic.ID, "feature": in.Feature, "used": currentUsed, "limit": limit,
-		}); err != nil {
-			s.logger.Error("webhook dispatch failed", "event", model.EventQuotaExceeded, "error", err)
+		if s.webhook != nil {
+			if err := s.webhook.DispatchWithLog(ctx, lic.ProductID, model.EventQuotaExceeded, map[string]any{
+				"license_id": lic.ID, "feature": in.Feature, "used": currentUsed, "limit": limit,
+			}); err != nil {
+				s.logger.Error("webhook dispatch failed", "event", model.EventQuotaExceeded, "error", err)
+			}
 		}
 		return nil, apperr.WithDetails(
 			apperr.New(429, "QUOTA_EXCEEDED", "usage quota exceeded for "+in.Feature),
@@ -132,10 +134,12 @@ func (s *UsageService) RecordUsage(ctx context.Context, in RecordUsageInput) (*R
 		// Fire warning ONCE per crossing: previous reading was under
 		// threshold, current crosses it.
 		if ratio >= s.warningThreshold && prevRatio < s.warningThreshold {
-			if err := s.webhook.DispatchWithLog(ctx, lic.ProductID, model.EventQuotaWarning, map[string]any{
-				"license_id": lic.ID, "feature": in.Feature, "used": newUsed, "limit": limit, "threshold": s.warningThreshold,
-			}); err != nil {
-				s.logger.Error("webhook dispatch failed", "event", model.EventQuotaWarning, "error", err)
+			if s.webhook != nil {
+				if err := s.webhook.DispatchWithLog(ctx, lic.ProductID, model.EventQuotaWarning, map[string]any{
+					"license_id": lic.ID, "feature": in.Feature, "used": newUsed, "limit": limit, "threshold": s.warningThreshold,
+				}); err != nil {
+					s.logger.Error("webhook dispatch failed", "event", model.EventQuotaWarning, "error", err)
+				}
 			}
 			if s.email != nil && lic.Email != "" {
 				productName := ""

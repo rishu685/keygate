@@ -147,17 +147,19 @@ func (s *SeatService) AddSeat(ctx context.Context, in AddSeatInput) (*model.Seat
 	// SeatResent sends the email with the new link but adds no seat, so
 	// no seat.added.
 	if outcome != store.SeatExisted {
-		if outcome != store.SeatResent {
-			s.webhook.Dispatch(ctx, lic.ProductID, model.EventSeatAdded, map[string]any{
-				"license_id": lic.ID, "seat_id": seat.ID, "email": in.Email,
-				"role": in.Role, "outcome": string(outcome),
-			})
-		}
-		// Devices a seat brought back still had, now gone with its old key.
-		for _, a := range staleDevices {
-			s.webhook.Dispatch(ctx, lic.ProductID, "license.deactivated", map[string]any{
-				"license_id": lic.ID, "identifier": a.Identifier,
-			})
+		if s.webhook != nil {
+			if outcome != store.SeatResent {
+				s.webhook.Dispatch(ctx, lic.ProductID, model.EventSeatAdded, map[string]any{
+					"license_id": lic.ID, "seat_id": seat.ID, "email": in.Email,
+					"role": in.Role, "outcome": string(outcome),
+				})
+			}
+			// Devices a seat brought back still had, now gone with its old key.
+			for _, a := range staleDevices {
+				s.webhook.Dispatch(ctx, lic.ProductID, "license.deactivated", map[string]any{
+					"license_id": lic.ID, "identifier": a.Identifier,
+				})
+			}
 		}
 		if s.email != nil {
 			productName, downloadURL := "", ""
@@ -248,10 +250,12 @@ func (s *SeatService) AcceptSeatInvite(ctx context.Context, plainToken string) (
 		if rbErr != nil {
 			s.logger.Error("seat accept rollback failed", "seat_id", seat.ID, "err", rbErr)
 		}
-		for _, a := range devices {
-			s.webhook.Dispatch(ctx, lic.ProductID, "license.deactivated", map[string]any{
-				"license_id": lic.ID, "identifier": a.Identifier,
-			})
+		if s.webhook != nil {
+			for _, a := range devices {
+				s.webhook.Dispatch(ctx, lic.ProductID, "license.deactivated", map[string]any{
+					"license_id": lic.ID, "identifier": a.Identifier,
+				})
+			}
 		}
 		return nil, apperr.New(404, "SEAT_INVITE_INVALID",
 			"this invitation is invalid or has expired")
@@ -321,13 +325,15 @@ func (s *SeatService) removeSeat(ctx context.Context, lic *model.License, seatID
 		return nil
 	}
 
-	s.webhook.Dispatch(ctx, lic.ProductID, model.EventSeatRemoved, map[string]any{
-		"license_id": lic.ID, "seat_id": seatID, "email": seat.Email,
-	})
-	for _, a := range devices {
-		s.webhook.Dispatch(ctx, lic.ProductID, "license.deactivated", map[string]any{
-			"license_id": lic.ID, "identifier": a.Identifier,
+	if s.webhook != nil {
+		s.webhook.Dispatch(ctx, lic.ProductID, model.EventSeatRemoved, map[string]any{
+			"license_id": lic.ID, "seat_id": seatID, "email": seat.Email,
 		})
+		for _, a := range devices {
+			s.webhook.Dispatch(ctx, lic.ProductID, "license.deactivated", map[string]any{
+				"license_id": lic.ID, "identifier": a.Identifier,
+			})
+		}
 	}
 	s.store.Audit(ctx, &model.AuditLog{
 		Entity: "seat", EntityID: seatID, Action: "seat_removed",

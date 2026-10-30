@@ -91,10 +91,12 @@ func (c *ExpiryChecker) FinishSeatRemovals(ctx context.Context) {
 		if !done {
 			continue
 		}
-		for _, a := range devices {
-			c.webhook.Dispatch(ctx, seat.ProductID, "license.deactivated", map[string]any{
-				"license_id": seat.LicenseID, "identifier": a.Identifier,
-			})
+		if c.webhook != nil {
+			for _, a := range devices {
+				c.webhook.Dispatch(ctx, seat.ProductID, "license.deactivated", map[string]any{
+					"license_id": seat.LicenseID, "identifier": a.Identifier,
+				})
+			}
 		}
 		c.store.Audit(ctx, &model.AuditLog{
 			Entity: "seat", EntityID: seat.ID, Action: "seat_removal_finished",
@@ -148,14 +150,18 @@ func (c *ExpiryChecker) ExpireGracePeriodLicenses(ctx context.Context) {
 				ActorType: "system",
 				Changes:   map[string]any{"reason": "grace_period_ended"},
 			})
-			c.webhook.Dispatch(ctx, lic.ProductID, "license.expired", map[string]any{
-				"license_id": lic.ID, "email": lic.Email, "reason": "grace_period_ended",
-			})
+			if c.webhook != nil {
+				c.webhook.Dispatch(ctx, lic.ProductID, "license.expired", map[string]any{
+					"license_id": lic.ID, "email": lic.Email, "reason": "grace_period_ended",
+				})
+			}
 			productName := ""
 			if lic.Product != nil {
 				productName = lic.Product.Name
 			}
-			c.email.SendLicenseExpired(lic.Email, productName)
+			if c.email != nil {
+				c.email.SendLicenseExpired(lic.Email, productName)
+			}
 			c.logger.Info("license expired (grace ended)", "id", lic.ID)
 		}
 	}
@@ -203,10 +209,14 @@ func (c *ExpiryChecker) endTrial(ctx context.Context, lic *model.License) {
 				"status": model.StatusActive, "valid_until": "cleared",
 			},
 		})
-		c.webhook.Dispatch(ctx, lic.ProductID, model.EventPlanChanged, map[string]any{
-			"license_id": lic.ID, "email": lic.Email, "old_plan_id": res.From.ID, "new_plan_id": res.To.ID, "reason": "trial_ended",
-		})
-		c.email.SendTrialExpired(lic.Email, productName, res.To.Name)
+		if c.webhook != nil {
+			c.webhook.Dispatch(ctx, lic.ProductID, model.EventPlanChanged, map[string]any{
+				"license_id": lic.ID, "email": lic.Email, "old_plan_id": res.From.ID, "new_plan_id": res.To.ID, "reason": "trial_ended",
+			})
+		}
+		if c.email != nil {
+			c.email.SendTrialExpired(lic.Email, productName, res.To.Name)
+		}
 		c.logger.Info("trial ended; moved to fallback plan", "id", lic.ID, "plan_id", res.To.ID)
 	case res.Expire:
 		changes := map[string]any{"reason": "trial_ended"}
@@ -223,10 +233,14 @@ func (c *ExpiryChecker) endTrial(ctx context.Context, lic *model.License) {
 			ActorType: "system",
 			Changes:   changes,
 		})
-		c.webhook.Dispatch(ctx, lic.ProductID, "license.expired", map[string]any{
-			"license_id": lic.ID, "email": lic.Email, "reason": "trial_ended",
-		})
-		c.email.SendTrialExpired(lic.Email, productName, "")
+		if c.webhook != nil {
+			c.webhook.Dispatch(ctx, lic.ProductID, "license.expired", map[string]any{
+				"license_id": lic.ID, "email": lic.Email, "reason": "trial_ended",
+			})
+		}
+		if c.email != nil {
+			c.email.SendTrialExpired(lic.Email, productName, "")
+		}
 		c.logger.Info("trial expired", "id", lic.ID)
 	}
 	// Otherwise extended, moved or reinstated since it was read.
@@ -266,9 +280,11 @@ func (c *ExpiryChecker) MarkPastDueAsExpired(ctx context.Context) {
 			ActorType: "system",
 			Changes:   map[string]any{"reason": "past_due_timeout"},
 		})
-		c.webhook.Dispatch(ctx, lic.ProductID, model.EventLicenseExpired, map[string]any{
-			"license_id": lic.ID, "email": lic.Email, "reason": "past_due_timeout",
-		})
+		if c.webhook != nil {
+			c.webhook.Dispatch(ctx, lic.ProductID, model.EventLicenseExpired, map[string]any{
+				"license_id": lic.ID, "email": lic.Email, "reason": "past_due_timeout",
+			})
+		}
 		c.logger.Info("past_due expired", "id", lic.ID)
 	}
 }
@@ -281,7 +297,7 @@ func (c *ExpiryChecker) MarkPastDueAsExpired(ctx context.Context) {
 func (c *ExpiryChecker) SendUpdatesEndingReminders(ctx context.Context) {
 	// Turned off: skip without recording anything, so switching it back
 	// on reminds licenses still inside the window.
-	if !c.email.NotifyEnabled("updates_ending") {
+	if c.email == nil || !c.email.NotifyEnabled("updates_ending") {
 		return
 	}
 	from := time.Now()
@@ -438,7 +454,7 @@ func strconvI64(n int64) string {
 // the email, and every renewal is reminded, not only the first. Queued
 // through the durable mail queue like the other reminders.
 func (c *ExpiryChecker) SendRenewalReminders(ctx context.Context) {
-	if !c.email.NotifyEnabled("renewal_reminder") {
+	if c.email == nil || !c.email.NotifyEnabled("renewal_reminder") {
 		return
 	}
 	now := time.Now()
