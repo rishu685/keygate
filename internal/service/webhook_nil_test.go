@@ -119,7 +119,7 @@ func TestUsageService_NilWebhook(t *testing.T) {
 		ID:          "ent_" + f.suffix,
 		PlanID:      plan.ID,
 		Feature:     "api_calls",
-		ValueType:   "numeric",
+		ValueType:   "quota",
 		Value:       "10",
 		QuotaPeriod: "monthly",
 	}
