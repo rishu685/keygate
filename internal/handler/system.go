@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -173,23 +173,26 @@ func normalizeSemver(v string) string {
 	if !strings.HasPrefix(v, "v") {
 		v = "v" + v
 	}
-	base, suffix, hasSuffix := strings.Cut(v, "-")
-	if !hasSuffix {
-		base, suffix, hasSuffix = strings.Cut(v, "+")
-		if hasSuffix {
-			suffix = "+" + suffix
-		}
-	} else {
-		suffix = "-" + suffix
+	// The core ends at the first "-" (pre-release) or "+" (build).
+	i := strings.IndexAny(v, "-+")
+	if i < 0 {
+		i = len(v)
 	}
-	dots := strings.Count(base, ".")
-	if dots == 0 {
+	base, suffix := v[:i], v[i:]
+	switch strings.Count(base, ".") {
+	case 0:
 		base += ".0.0"
-	} else if dots == 1 {
+	case 1:
 		base += ".0"
 	}
 	return base + suffix
 }
+
+// describeSuffix is what `git describe --tags --dirty`, the Makefile's
+// version, adds after the tag: the commits since it with the commit's
+// hash, and a mark for uncommitted changes. A build carrying it is the
+// tag or later, never a pre-release of it as semver would read it.
+var describeSuffix = regexp.MustCompile(`(-[0-9]+-g[0-9a-f]+)?(-dirty)?$`)
 
 // semverNewer returns true if latest > current using semantic versioning.
 func semverNewer(latest, current string) bool {
@@ -197,27 +200,11 @@ func semverNewer(latest, current string) bool {
 		return false
 	}
 	vl := normalizeSemver(latest)
-	vc := normalizeSemver(current)
+	vc := normalizeSemver(describeSuffix.ReplaceAllString(current, ""))
 	if !semver.IsValid(vl) || !semver.IsValid(vc) {
 		return false
 	}
 	return semver.Compare(vl, vc) > 0
-}
-
-func parseSemver(v string) [3]int {
-	v = normalizeSemver(v)
-	if !semver.IsValid(v) {
-		return [3]int{}
-	}
-	v = strings.TrimPrefix(v, "v")
-	v, _, _ = strings.Cut(v, "-")
-	v, _, _ = strings.Cut(v, "+")
-	parts := strings.Split(v, ".")
-	var result [3]int
-	for i := 0; i < 3 && i < len(parts); i++ {
-		result[i], _ = strconv.Atoi(parts[i])
-	}
-	return result
 }
 
 func stripV(v string) string {

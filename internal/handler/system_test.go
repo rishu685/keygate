@@ -40,6 +40,20 @@ func TestSemverNewer(t *testing.T) {
 		// Partial versions
 		{"1.1", "1.0", true},
 		{"1", "0", true},
+		{"1.1+build-x", "1.0", true},
+
+		// A build from source: `git describe --tags --dirty` is the
+		// tag or later, never a pre-release of it
+		{"0.1.19", "0.1.19-3-gabc1234", false},
+		{"0.1.19", "0.1.19-dirty", false},
+		{"0.1.19", "0.1.19-3-gabc1234-dirty", false},
+		{"0.1.19", "0.1.18-12-g0123abc", true},
+		{"0.1.20", "0.1.19-3-gabc1234", true},
+		{"0.2.0", "0.2.0-rc.1-3-gabc1234", true},
+		{"0.1.19", "0.2.0-rc.1-3-gabc1234", false},
+		// No tag at all: `--always` gives the bare hash
+		{"0.1.19", "abc1234", false},
+		{"0.1.19", "abc1234-dirty", false},
 	}
 
 	for _, tt := range tests {
@@ -60,26 +74,6 @@ func TestStripV(t *testing.T) {
 	for _, tt := range tests {
 		if got := stripV(tt.in); got != tt.want {
 			t.Errorf("stripV(%q) = %q, want %q", tt.in, got, tt.want)
-		}
-	}
-}
-
-func TestParseSemver(t *testing.T) {
-	tests := []struct {
-		in   string
-		want [3]int
-	}{
-		{"1.2.3", [3]int{1, 2, 3}},
-		{"v1.2.3", [3]int{1, 2, 3}},
-		{"1.2.3-beta.1", [3]int{1, 2, 3}},
-		{"1.2.3+build456", [3]int{1, 2, 3}},
-		{"1.2", [3]int{1, 2, 0}},
-		{"1", [3]int{1, 0, 0}},
-		{"invalid", [3]int{0, 0, 0}},
-	}
-	for _, tt := range tests {
-		if got := parseSemver(tt.in); got != tt.want {
-			t.Errorf("parseSemver(%q) = %v, want %v", tt.in, got, tt.want)
 		}
 	}
 }
