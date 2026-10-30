@@ -70,21 +70,40 @@ func TestExpiryChecker_NilWebhookAndEmail(t *testing.T) {
 // TestSeatService_NilWebhook verifies that SeatService operations (add, remove)
 // complete without panicking when WebhookService is nil.
 func TestSeatService_NilWebhook(t *testing.T) {
-	f := newSeatFixture(t, 5)
-	seatSvc := NewSeatService(f.s, nil, nil, slog.Default())
+	f := newFallbackFixture(t)
+	prod := &model.Product{Name: "Seats NilWH", Slug: "seats-nilwh-" + f.suffix, Type: "saas"}
+	if err := f.s.CreateProduct(f.ctx, prod); err != nil {
+		t.Fatal(err)
+	}
+	plan := &model.Plan{
+		ProductID: prod.ID, Name: "SeatPlan", Slug: "seat-plan-" + f.suffix,
+		LicenseType: "perpetual", LicenseModel: "standard", MaxSeats: 5, Active: true,
+	}
+	if err := f.s.CreatePlan(f.ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	lic := &model.License{
+		ProductID: prod.ID, PlanID: plan.ID, Email: "owner-nilwh-" + f.suffix + "@example.com",
+		LicenseKey: "KG-NILWH-" + f.suffix, Status: model.StatusActive,
+	}
+	if err := f.s.CreateLicense(f.ctx, lic); err != nil {
+		t.Fatal(err)
+	}
+
+	seatSvc := NewSeatService(f.s, nil, nil, slog.Default(), "")
 
 	seat, err := seatSvc.AddSeat(f.ctx, AddSeatInput{
-		LicenseKey: f.lic.LicenseKey,
-		Email:      "member-nilwh@example.com",
+		LicenseKey: lic.LicenseKey,
+		Email:      "member-nilwh-" + f.suffix + "@example.com",
 		Role:       "member",
-		ProductID:  f.prod.ID,
-		ActorEmail: f.lic.Email,
+		ProductID:  prod.ID,
+		ActorEmail: lic.Email,
 	})
 	if err != nil {
 		t.Fatalf("AddSeat failed: %v", err)
 	}
 
-	if err := seatSvc.RemoveSeat(f.ctx, f.lic.LicenseKey, seat.ID, f.prod.ID, "user_actor", f.lic.Email); err != nil {
+	if err := seatSvc.RemoveSeat(f.ctx, lic.LicenseKey, seat.ID, prod.ID, "user_actor", lic.Email); err != nil {
 		t.Fatalf("RemoveSeat failed: %v", err)
 	}
 }
